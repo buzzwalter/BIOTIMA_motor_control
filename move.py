@@ -1,5 +1,6 @@
 import sys
 import smaract.ctl as ctl
+import numpy as np
 
 should_continue = True  # Global flag to control the loop
 
@@ -8,7 +9,7 @@ class ChannelError(Exception):
     pass
 
 # set all of the properties we want for motor movement such as 
-def set_scan_properties(d_handle, move_velocity =  2e9, hold_time = 0, num_channels = 2):
+def set_scan_properties(d_handle, move_velocity =  int(2e9), hold_time = 0, num_channels = 2):
     # d_handle of motor for interacting in the Smaract API
     # move_velocity of a motor axis
     # hold_time to wait after moving to a position
@@ -18,7 +19,7 @@ def set_scan_properties(d_handle, move_velocity =  2e9, hold_time = 0, num_chann
         ctl.SetProperty_i64(d_handle, channel, ctl.Property.MOVE_VELOCITY, move_velocity)
 
 # reference the motor to ensure it doesn't drift
-def reference_motor(d_handle, move_velocity =  2e9,num_channels=2):
+def reference_motor(d_handle, move_velocity =  int(2e9),num_channels=2):
     # d_handle of motor for interacting in the Smaract API
     # move_velocity of a motor axis
     # num_channels number of channels, or axes, for the motor with d_handle
@@ -45,7 +46,7 @@ def stop_scanning(event):
     print("Stopping scanning...")
 
 # generate snake movement for motor in the selected area
-def snake_scan(d_handle, boundaries_container, step_size=5e7,num_channels=2,restart_scan=True):
+def snake_scan(d_handle, boundaries_container, step_size=int(5e7),num_channels=2,restart_scan=True):
     # d_handle of motor for interacting in the Smaract API
     # boundaries_container with as many entries as channels, starting with channel 0 and containing the min max pairs (min_pos_i,max_pos_i)
     # step_size to move motor, set to 50 micron
@@ -57,14 +58,17 @@ def snake_scan(d_handle, boundaries_container, step_size=5e7,num_channels=2,rest
         channel_b = 0
         channel_a = 1
         b_boundaries, a_boundaries = boundaries_container
-        N_points_b = int(np.ceil((b_boundaries[1] - b_boundaries[0]) / step_size)) 
+        N_points_b = int(np.ceil((b_boundaries[1] - b_boundaries[0])*1e9 / step_size)) 
         while restart_scan:
             for i in range(N_points_b // 2): # two movements in the b axis per loop so we int divide by 2
+                print('loop number {} out of {}'.format(i,N_points_b//2) )
                 for boundary in a_boundaries:
-                    ctl.Move(d_handle,channel_a,boundary)
+                    ctl.Move(d_handle,channel_a,int(boundary*1e9)) # convert mouse click to pm
+                    wait_for_movement_settled(d_handle, channel_a)
                     ctl.Move(d_handle,channel_b,step_size*i)
+                    wait_for_movement_settled(d_handle, channel_b)
             if N_points_b%2:
-                ctl.Move(d_handle,channel_b,step_size*i) # ensure movement catches the odd parity mismatch from the for-loop
+                ctl.Move(d_handle,channel_b,step_size*((N_points_b // 2)+1)) # ensure movement catches the odd parity mismatch from the for-loop
 
         ctl.Close()
     except ctl.Error as e:
@@ -82,3 +86,24 @@ def snake_scan(d_handle, boundaries_container, step_size=5e7,num_channels=2,rest
             print("*******************************************************")
             print("Done. Press return to exit.")
             input()
+
+# wait for movement to settle before attempting to move the motor again
+def wait_for_movement_settled(d_handle, channel):
+    # d_handle of motor for interacting in the Smaract API
+    # channel of axis we're waiting for
+    try:
+        while (True):
+            state = ctl.GetProperty_i32(d_handle, channel, ctl.Property.CHANNEL_STATE)
+            mask = ctl.ChannelState.ACTIVELY_MOVING
+            if (state & mask) == 0:
+                return
+            if (state & ctl.ChannelState.MOVEMENT_FAILED) != 0:
+                # The channel error property may then be read to determine the reason of the error.
+                error = ctl.GetProperty_i32(d_handle, channel, ctl.Property.CHANNEL_ERROR)
+                print("MCS2 movement failed: {} (error: 0x{:04X}), abort.".format(ctl.GetResultInfo(error), error))
+    except ctl.Error as e:
+        # Passing an error code to "GetResultInfo" returns a human readable string
+        # specifying the error.
+        print("MCS2 {}: {}, error: {} (0x{:04X}) in line: {}.".format(e.func, ctl.GetResultInfo(e.code), ctl.ErrorCode(e.code).name, e.code, (sys.exc_info()[-1].tb_lineno)))
+
+ 

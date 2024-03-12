@@ -1,10 +1,12 @@
 from matplotlib.widgets import RectangleSelector
 from matplotlib.widgets import Button
 import numpy as np
+import sys
 import matplotlib.pyplot as plt
 from move import set_scan_properties
 from move import reference_motor
 from move import snake_scan
+import smaract.ctl as ctl
 
 a_max = []
 b_max = []
@@ -39,7 +41,7 @@ def toggle_selector(event):
         toggle_selector.RS.set_active(True)
 
 # plots available space for the motor to move
-def get_plot(N=1000, x_zero=2,y_zero=-1):
+def get_plot(N=1000, x_zero=14,y_zero=13):
     # N number of points to use
     # x_zero referenced zero for the laser alignment along axis a
     # y_zero referenced zero for the laser alignment along axis b
@@ -51,9 +53,11 @@ def get_plot(N=1000, x_zero=2,y_zero=-1):
     x = -np.linspace(0.0, plate_extent, N)+x_zero               # improvement by use blitting!
     y = -x-y_zero+x_zero
 
-    plt.scatter(x_zero,y_zero,marker='+',c='r') # plot where the alignment zero is for the laser
+    plt.scatter(0,0,marker='+',c='r') # plot where the zero is for the plate
+    # plot zero for laser in blue
     plt.scatter(x, (plate_extent/2-y_zero)*np.ones(len(x)),c='b', marker='.', alpha=.02)  
     plt.scatter((-plate_extent/2+x_zero)*np.ones(len(x)), y,c='b', marker='.', alpha=.02)  
+    plt.legend(['plate','laser'])
     plt.axis([max(x), min(x), min(y), max(y)])
     plt.xlabel('axis a')
     plt.ylabel('axis b')
@@ -70,6 +74,7 @@ def get_plot(N=1000, x_zero=2,y_zero=-1):
     plt.connect('key_press_event', toggle_selector)
     plt.show(block=True)
 
+# main code block
 try:
     buffer = ctl.FindDevices("")
     if len(buffer) == 0:       
@@ -90,7 +95,6 @@ try:
     set_scan_properties(d_handle)
     boundaries_container = [[b_min[0],b_max[0]],[a_min[0],a_max[0]]]
     snake_scan(d_handle,boundaries_container)
-except:
+except Exception as e:
     print("Main process failed")
-    input()
-    sys.exit(1)
+    raise
